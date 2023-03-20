@@ -19,13 +19,19 @@ Change `config.json.sample` to `config.json` and modify the content necessary - 
 Simply Run `node health-checks.js`,
 
 Example:
+
 ![image](https://user-images.githubusercontent.com/1764434/226456987-049768c5-f00d-4bd8-9829-7455de428a77.png)
 
 In case of failures:
+
 ![d59cb84041082bcf257cadacf9f434d](https://user-images.githubusercontent.com/1764434/226457048-a378637f-9cba-4d5e-a830-4ec05330207b.png)
 
 You should get an email, if configured correctedly.
+
 ![efcef2260e1f5815890b0035ecfcba7](https://user-images.githubusercontent.com/1764434/226457115-dcf56438-f820-4df8-868f-a4454aacdb6e.png)
 
 ## TODO:
 Configure a max email per period (PR welcome)
+
+## Support
+If you find this useful, [why not buy me a coffee](https://justyy.com/out/bmc)? Thanks!
