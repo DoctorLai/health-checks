@@ -13,7 +13,7 @@ Most code at the "init commit" is done by [ChatGPT](https://helloacm.com/chatgpt
 No docker - as you probably can't run docker on it. You can either run it in `screen` or `pm2` (install via `npm install pm2 -g`) so that it will stay in background.
 
 ### Config.json
-Change `config.json.sample` to `config.json` and modify the content necessary - which should be pretty straightforward.
+Change `config.json.sample` to `config.json` and modify the content necessary - which should be pretty straightforward. If `expectedContent` is empty, this check will be ignored.
 
 Run `npm install` to install the missing dependencies.
 
