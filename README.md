@@ -17,6 +17,43 @@ Change `config.json.sample` to `config.json` and modify the content necessary - 
 
 Run `npm install` to install the missing dependencies.
 
+Here is a sample JSON config:
+
+```json
+{
+  "urls": [
+    {
+      "name": "Example Website",
+      "url": "https://example.com",
+      "interval": 60,
+      "expectedStatusCode": 200,
+      "expectedContent": "Example Domain",
+      "ignore_period": 1800
+    },
+    {
+      "name": "Google",
+      "url": "https://www.google.com",
+      "interval": 30,
+      "expectedStatusCode": 200,
+      "expectedContent": "Google",
+      "ignore_period": 1800
+    }
+  ],
+  "email": {
+    "service": "Gmail",
+    "auth": {
+        "user": "your gmail account",
+        "pass": "your gmail temp app password"
+    },
+    "destination": "email address that you wish to receive the notification",
+    "interval": 3,
+    "enabled": true
+  }
+}
+```
+
+The `ignore_period` for each url specifies the period that no two notifications will be handled. The `email.enabled` when set to false, will print to console instead of sending emails. The emails will be sent one per `interval` seconds.
+
 ### Run Health-Checks
 Simply Run `node health-checks.js`,
 

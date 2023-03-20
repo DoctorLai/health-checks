@@ -5,14 +5,16 @@
       "url": "https://example.com",
       "interval": 60,
       "expectedStatusCode": 200,
-      "expectedContent": "Example Domain"
+      "expectedContent": "Example Domain",
+      "ignore_period": 1800
     },
     {
       "name": "Google",
       "url": "https://www.google.com",
       "interval": 30,
       "expectedStatusCode": 200,
-      "expectedContent": "Google"
+      "expectedContent": "Google",
+      "ignore_period": 1800
     }
   ],
   "email": {
@@ -21,6 +23,8 @@
         "user": "your gmail account",
         "pass": "your gmail temp app password"
     },
-    "destination": "email address that you wish to receive the notification"
+    "destination": "email address that you wish to receive the notification",
+    "interval": 3,
+    "enabled": true
   }
 }
