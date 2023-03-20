@@ -1,0 +1,26 @@
+{
+  "urls": [
+    {
+      "name": "Example Website",
+      "url": "https://example.com",
+      "interval": 60,
+      "expectedStatusCode": 200,
+      "expectedContent": "Example Domain"
+    },
+    {
+      "name": "Google",
+      "url": "https://www.google.com",
+      "interval": 30,
+      "expectedStatusCode": 200,
+      "expectedContent": "Google"
+    }
+  ]
+  "email": {
+    "service": "Gmail",
+    "auth": {
+        "user": "your gmail account",
+        "pass": "your gmail temp app password"
+    },
+    "destination": "email address that you wish to receive the notification"
+  }
+}
