@@ -10,10 +10,12 @@ This lightweight VPS does not have much RAM - so it cannot run heavy application
 Most code at the "init commit" is done by [ChatGPT](https://helloacm.com/chatgpt-designs-a-health-check-tool-in-node-js-to-run-on-free-vps-instance/). Thank you!
 
 ## How to Run?
-No docker - as you probably can't run docker on it. You can either run it in `screen` or `pm2` so that it will stay in background.
+No docker - as you probably can't run docker on it. You can either run it in `screen` or `pm2` (install via `npm install pm2 -g`) so that it will stay in background.
 
 ### Config.json
 Change `config.json.sample` to `config.json` and modify the content necessary - which should be pretty straightforward.
+
+Run `npm install` to install the missing dependencies.
 
 ### Run Health-Checks
 Simply Run `node health-checks.js`,
