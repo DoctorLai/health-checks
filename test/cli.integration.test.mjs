@@ -81,6 +81,11 @@ beforeAll(async () => {
       response.end('not-found');
       return;
     }
+    if (request.url === '/redirect') {
+      response.writeHead(302, { Location: '/healthy' });
+      response.end('redirecting');
+      return;
+    }
     if (request.url === '/unhealthy') {
       response.writeHead(503);
       response.end('sensitive upstream response');
@@ -137,6 +142,18 @@ describe('real HTTP and CLI behavior', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain(`${origin}${route} - OK!`);
     expect(requests).toEqual([route]);
+  });
+
+  it('accepts an expected redirect without following its Location', async () => {
+    const config = await writeConfig('/redirect', {
+      expectedStatusCode: 302,
+      expectedContent: 'redirecting',
+    });
+    const result = await startCli(['--config', config, '--once']).completion;
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain(`${origin}/redirect - OK!`);
+    expect(requests).toEqual(['/redirect']);
   });
 
   it('exits unsuccessfully and prints an alert for an unexpected status', async () => {

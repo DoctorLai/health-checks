@@ -153,6 +153,8 @@ function createMonitor(config, { logger = console } = {}) {
         responseType: 'text',
         transformResponse: [(value) => value],
         validateStatus: () => true,
+        maxRedirects:
+          target.expectedStatusCode >= 300 && target.expectedStatusCode < 400 ? 0 : undefined,
         timeout: target.timeout ?? DEFAULT_TIMEOUT_MS,
         signal: controller.signal,
       });
