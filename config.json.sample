@@ -4,27 +4,31 @@
       "name": "Example Website",
       "url": "https://example.com",
       "interval": 60,
+      "timeout": 10000,
       "expectedStatusCode": 200,
       "expectedContent": "Example Domain",
-      "ignore_period": 1800
+      "ignore_period": 1800,
+      "notifyRecovery": false
     },
     {
       "name": "Google",
       "url": "https://www.google.com",
       "interval": 30,
+      "timeout": 10000,
       "expectedStatusCode": 200,
       "expectedContent": "Google",
-      "ignore_period": 1800
+      "ignore_period": 1800,
+      "notifyRecovery": false
     }
   ],
   "email": {
     "service": "Gmail",
     "auth": {
-        "user": "your gmail account",
-        "pass": "your gmail temp app password"
+      "user": "your gmail account",
+      "pass": "your gmail temp app password"
     },
     "destination": "email address that you wish to receive the notification",
     "interval": 3,
-    "enabled": true
+    "enabled": false
   }
 }

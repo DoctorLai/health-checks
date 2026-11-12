@@ -1,0 +1,483 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const require = createRequire(import.meta.url);
+const axios = require('axios');
+const nodemailer = require('nodemailer');
+const { createMonitor, loadConfig, main, validateConfig } = require('../health-check.js');
+
+function configuration() {
+  return {
+    urls: [
+      {
+        name: 'Example',
+        url: 'https://example.com',
+        interval: 1,
+        expectedStatusCode: 200,
+        expectedContent: 'online',
+        ignore_period: 2,
+      },
+    ],
+    email: {
+      enabled: false,
+      interval: 0.25,
+    },
+  };
+}
+
+describe('configuration', () => {
+  it('accepts console-only configuration without SMTP credentials', () => {
+    const config = configuration();
+    expect(() => validateConfig(config)).not.toThrow();
+  });
+
+  it.each([
+    [null, 'urls must be a non-empty array'],
+    [{ urls: [] }, 'urls must be a non-empty array'],
+    [{ urls: [null] }, 'urls[0] must be an object'],
+  ])('rejects invalid configuration structure: %j', (config, message) => {
+    expect(() => validateConfig(config)).toThrow(message);
+  });
+
+  it.each([
+    ['name', ' ', 'name'],
+    ['url', null, 'url'],
+    ['url', 'not-a-url', 'valid HTTP(S) URL'],
+    ['url', 'file:///etc/hosts', 'HTTP or HTTPS'],
+    ['interval', 0, 'interval'],
+    ['interval', '60', 'interval'],
+    ['interval', 2_147_484, 'interval'],
+    ['expectedStatusCode', 99, 'expectedStatusCode'],
+    ['expectedStatusCode', 600, 'expectedStatusCode'],
+    ['expectedStatusCode', 200.5, 'expectedStatusCode'],
+    ['expectedContent', false, 'expectedContent'],
+    ['notifyRecovery', 'true', 'notifyRecovery'],
+    ['ignore_period', -1, 'ignore_period'],
+    ['ignore_period', Infinity, 'ignore_period'],
+    ['timeout', 0, 'timeout'],
+    ['timeout', 2_147_483_648, 'timeout'],
+    ['timeout', 1.5, 'timeout'],
+  ])('rejects invalid %s value %j', (key, value, message) => {
+    const config = configuration();
+    config.urls[0][key] = value;
+    expect(() => validateConfig(config)).toThrow(message);
+  });
+
+  it('validates email settings only when delivery is enabled', () => {
+    const config = configuration();
+    config.email.enabled = 'false';
+    expect(() => validateConfig(config)).toThrow('email.enabled');
+    config.email.enabled = false;
+    config.email.interval = -1;
+    expect(() => validateConfig(config)).toThrow('email.interval');
+    config.email.interval = 1;
+    config.email.enabled = true;
+    expect(() => validateConfig(config)).toThrow('email.service');
+    config.email.service = 'Gmail';
+    expect(() => validateConfig(config)).toThrow('email.auth.user');
+    config.email.auth = { user: 'sender@example.com' };
+    expect(() => validateConfig(config)).toThrow('email.auth.pass');
+    config.email.auth.pass = 'test-password';
+    expect(() => validateConfig(config)).toThrow('email.destination');
+    config.email.destination = 'recipient@example.com';
+    expect(() => validateConfig(config)).not.toThrow();
+  });
+
+  it('reports unreadable files and malformed JSON without echoing configuration secrets', () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'health-checks-config-'));
+    try {
+      const filename = path.join(directory, 'config.json');
+      expect(() => loadConfig(filename)).toThrow('Could not read configuration');
+      writeFileSync(filename, '{"password":"test-private-value"');
+      expect(() => loadConfig(filename)).toThrow('not valid JSON');
+      try {
+        loadConfig(filename);
+      } catch (error) {
+        expect(error.message).not.toContain('test-private-value');
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('monitor', () => {
+  let logger;
+  let transport;
+  let monitors;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+    logger = { log: vi.fn(), error: vi.fn() };
+    transport = { sendMail: vi.fn().mockResolvedValue({}), close: vi.fn() };
+    monitors = [];
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: 'service online' });
+    vi.spyOn(nodemailer, 'createTransport').mockReturnValue(transport);
+  });
+
+  afterEach(() => {
+    for (const monitor of monitors) {
+      monitor.stop();
+    }
+    vi.useRealTimers();
+  });
+
+  function monitorFor(config = configuration()) {
+    const monitor = createMonitor(config, { logger });
+    monitors.push(monitor);
+    return monitor;
+  }
+
+  it('checks status and content successfully without creating an SMTP transport in console mode', async () => {
+    expect(await monitorFor().runOnce()).toBe(true);
+    expect(logger.log).toHaveBeenCalledWith('https://example.com - OK!');
+    expect(nodemailer.createTransport).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('reports unexpected statuses and drains console notifications in once mode', async () => {
+    axios.get.mockResolvedValue({ status: 503, data: 'unavailable' });
+    expect(await monitorFor().runOnce()).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Example returned unexpected status code: 503 (expected 200).',
+    );
+    expect(logger.log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Notification of Failure Handled: subject=Health check failed for Example',
+      ),
+    );
+  });
+
+  it('reports missing expected content without logging the response body', async () => {
+    axios.get.mockResolvedValue({ status: 200, data: 'sensitive-response-body' });
+    expect(await monitorFor().runOnce()).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('unexpected content'));
+    expect(JSON.stringify(logger.log.mock.calls)).not.toContain('sensitive-response-body');
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('sensitive-response-body');
+  });
+
+  it('allows an empty or omitted content expectation', async () => {
+    const config = configuration();
+    config.urls[0].expectedContent = '';
+    axios.get.mockResolvedValue({ status: 200, data: '' });
+    expect(await monitorFor(config).runOnce()).toBe(true);
+    delete config.urls[0].expectedContent;
+    expect(await monitorFor(config).runOnce()).toBe(true);
+  });
+
+  it('reports network errors and applies the configured request timeout', async () => {
+    const config = configuration();
+    config.urls[0].timeout = 2500;
+    axios.get.mockRejectedValue(new Error('timeout of 2500ms exceeded'));
+    expect(await monitorFor(config).runOnce()).toBe(false);
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://example.com',
+      expect.objectContaining({ timeout: 2500, responseType: 'text' }),
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      'Example could not be reached: timeout of 2500ms exceeded',
+    );
+  });
+
+  it('preserves the first-check interval and suppresses repeat alerts through the cooldown boundary', async () => {
+    const config = configuration();
+    const original = structuredClone(config);
+    axios.get.mockResolvedValue({ status: 500, data: '' });
+    monitorFor(config).start();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(axios.get).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3501);
+    expect(axios.get).toHaveBeenCalledTimes(4);
+    const notifications = logger.log.mock.calls.filter(([text]) =>
+      text.startsWith('Notification of Failure Handled:'),
+    );
+    expect(notifications).toHaveLength(2);
+    expect(config).toEqual(original);
+  });
+
+  it('keeps cooldowns independent for two checks of the same URL', async () => {
+    const config = configuration();
+    config.urls.push({ ...config.urls[0], name: 'Second check' });
+    axios.get.mockResolvedValue({ status: 500, data: '' });
+    expect(await monitorFor(config).runOnce()).toBe(false);
+    const notifications = logger.log.mock.calls.filter(([text]) =>
+      text.startsWith('Notification of Failure Handled:'),
+    );
+    expect(notifications).toHaveLength(2);
+    expect(notifications[1][0]).toContain('Second check');
+  });
+
+  it('paces notifications independently of URL checks and permits zero cooldown', async () => {
+    const config = configuration();
+    config.urls[0].ignore_period = 0;
+    config.email.interval = 3;
+    axios.get.mockResolvedValue({ status: 500, data: '' });
+    monitorFor(config).start();
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(axios.get).toHaveBeenCalledTimes(6);
+    expect(
+      logger.log.mock.calls.filter(([text]) => text.startsWith('Notification of Failure Handled:')),
+    ).toHaveLength(2);
+  });
+
+  it.each([undefined, false])(
+    'preserves failure-only notifications and cooldowns when notifyRecovery is %s',
+    async (notifyRecovery) => {
+      const config = configuration();
+      config.urls[0].notifyRecovery = notifyRecovery;
+      config.urls[0].ignore_period = 60;
+      axios.get
+        .mockResolvedValueOnce({ status: 500, data: '' })
+        .mockResolvedValueOnce({ status: 200, data: 'online' })
+        .mockResolvedValue({ status: 500, data: '' });
+      monitorFor(config).start();
+      await vi.advanceTimersByTimeAsync(3500);
+      const notifications = logger.log.mock.calls.filter(([text]) =>
+        text.startsWith('Notification of'),
+      );
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0][0]).toContain('Health check failed for Example');
+    },
+  );
+
+  it('does not send a recovery notification for an initially healthy target', async () => {
+    const config = configuration();
+    config.urls[0].notifyRecovery = true;
+    expect(await monitorFor(config).runOnce()).toBe(true);
+    expect(logger.log.mock.calls.some(([text]) => text.startsWith('Notification of'))).toBe(false);
+  });
+
+  it('notifies once after full recovery and alerts immediately for a new incident', async () => {
+    const config = configuration();
+    config.urls[0].notifyRecovery = true;
+    config.urls[0].ignore_period = 60;
+    axios.get
+      .mockResolvedValueOnce({ status: 500, data: '' })
+      .mockResolvedValueOnce({ status: 200, data: 'wrong content' })
+      .mockResolvedValueOnce({ status: 200, data: 'online' })
+      .mockResolvedValueOnce({ status: 200, data: 'online' })
+      .mockResolvedValue({ status: 500, data: '' });
+    monitorFor(config).start();
+    await vi.advanceTimersByTimeAsync(4500);
+    const notifications = () =>
+      logger.log.mock.calls.filter(([text]) => text.startsWith('Notification of'));
+    expect(notifications()).toHaveLength(2);
+    expect(notifications()[0][0]).toContain('Health check failed for Example');
+    expect(notifications()[1][0]).toContain(
+      'Notification of Recovery Handled: subject=Health check recovered for Example',
+    );
+    expect(logger.error).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(notifications()).toHaveLength(3);
+    expect(notifications()[2][0]).toContain('Health check failed for Example');
+  });
+
+  it('sends recovery emails through the normal notification queue without internal metadata', async () => {
+    const config = configuration();
+    config.urls[0].notifyRecovery = true;
+    config.email = {
+      ...config.email,
+      enabled: true,
+      service: 'Gmail',
+      auth: { user: 'sender@example.com', pass: 'test-password' },
+      destination: 'recipient@example.com',
+    };
+    axios.get.mockRejectedValueOnce(new Error('connection refused'));
+    monitorFor(config).start();
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(transport.sendMail).toHaveBeenCalledTimes(2);
+    expect(transport.sendMail).toHaveBeenNthCalledWith(2, {
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Health check recovered for Example',
+      text: 'Example recovered and now passes its health check (status 200).',
+    });
+  });
+
+  it('does not overlap slow checks and aborts in-flight requests on stop', async () => {
+    let rejectRequest;
+    axios.get.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          rejectRequest = reject;
+        }),
+    );
+    const monitor = monitorFor();
+    monitor.start();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    const signal = axios.get.mock.calls[0][1].signal;
+    monitor.stop();
+    expect(signal.aborted).toBe(true);
+    rejectRequest(new Error('canceled'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ignores a response that arrives after shutdown', async () => {
+    let resolveRequest;
+    axios.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    const monitor = monitorFor();
+    const result = monitor.runOnce();
+    monitor.stop();
+    resolveRequest({ status: 200, data: 'online' });
+    expect(await result).toBe(false);
+    expect(logger.log).not.toHaveBeenCalledWith('https://example.com - OK!');
+  });
+
+  it('sends email alerts using the configured sender and destination', async () => {
+    const config = configuration();
+    config.email = {
+      ...config.email,
+      enabled: true,
+      service: 'Gmail',
+      auth: { user: 'sender@example.com', pass: 'test-password' },
+      destination: 'recipient@example.com',
+    };
+    axios.get.mockRejectedValue(new Error('connection refused'));
+    expect(await monitorFor(config).runOnce()).toBe(false);
+    expect(transport.sendMail).toHaveBeenCalledWith({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Health check failed for Example',
+      text: 'Example could not be reached: connection refused',
+    });
+    expect(logger.log).toHaveBeenCalledWith(
+      'Email notification sent for Health check failed for Example',
+    );
+  });
+
+  it('logs SMTP failures and does not send overlapping email requests', async () => {
+    const config = configuration();
+    config.urls[0].ignore_period = 0;
+    config.email = {
+      enabled: true,
+      interval: 1,
+      service: 'Gmail',
+      auth: { user: 'sender@example.com', pass: 'test-password' },
+      destination: 'recipient@example.com',
+    };
+    let rejectEmail;
+    transport.sendMail.mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          rejectEmail = reject;
+        }),
+    );
+    axios.get.mockResolvedValue({ status: 500, data: '' });
+    monitorFor(config).start();
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(transport.sendMail).toHaveBeenCalledTimes(1);
+    rejectEmail(new Error('SMTP unavailable'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to send email notification: SMTP unavailable',
+    );
+    expect(transport.sendMail).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not permit restarting a running or stopped monitor', () => {
+    const monitor = monitorFor();
+    monitor.start();
+    expect(() => monitor.start()).toThrow('cannot be started twice');
+    monitor.stop();
+    expect(() => monitor.start()).toThrow('after stopping');
+  });
+
+  it('rejects once mode on an active, completed, or stopped monitor', async () => {
+    const active = monitorFor();
+    active.start();
+    await expect(active.runOnce()).rejects.toThrow('Once mode requires a new');
+    const completed = monitorFor();
+    expect(await completed.runOnce()).toBe(true);
+    await expect(completed.runOnce()).rejects.toThrow('Once mode requires a new');
+    const stopped = monitorFor();
+    stopped.stop();
+    await expect(stopped.runOnce()).rejects.toThrow('Once mode requires a new');
+  });
+});
+
+describe('command-line entry point', () => {
+  let directory;
+  let filename;
+  let previousExitCode;
+
+  beforeEach(() => {
+    directory = mkdtempSync(path.join(os.tmpdir(), 'health-checks-cli-'));
+    filename = path.join(directory, 'config.json');
+    writeFileSync(filename, JSON.stringify(configuration()));
+    previousExitCode = process.exitCode;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    process.exitCode = previousExitCode;
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  it('prints help and version without requiring configuration', async () => {
+    await main(['--help']);
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
+    await main(['--version']);
+    expect(console.log).toHaveBeenCalledWith(require('../package.json').version);
+  });
+
+  it('validates an explicit configuration without making network requests', async () => {
+    vi.spyOn(axios, 'get');
+    await main(['--config', filename, '--check-config']);
+    expect(console.log).toHaveBeenCalledWith('Configuration is valid.');
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  it('sets a failing exit code for an unhealthy once-mode check', async () => {
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 503, data: '' });
+    await main(['-c', filename, '--once']);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('leaves the exit code unchanged for healthy once-mode checks', async () => {
+    vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: 'online' });
+    await main(['-c', filename, '--once']);
+    expect(process.exitCode).toBe(previousExitCode);
+  });
+
+  it('registers shutdown handlers and removes them after stopping', async () => {
+    vi.useFakeTimers();
+    const previousHandlers = new Set(process.listeners('SIGTERM'));
+    try {
+      await main(['--config', filename]);
+      const shutdown = process
+        .listeners('SIGTERM')
+        .find((handler) => !previousHandlers.has(handler));
+      expect(shutdown).toBeTypeOf('function');
+      expect(vi.getTimerCount()).toBe(2);
+      shutdown();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(process.listeners('SIGTERM')).not.toContain(shutdown);
+      expect(process.listeners('SIGINT')).not.toContain(shutdown);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects unknown command-line options', async () => {
+    await expect(main(['--unknown-option'])).rejects.toThrow('Unknown option');
+  });
+
+  it('rejects conflicting modes instead of silently ignoring an option', async () => {
+    vi.spyOn(axios, 'get');
+    await expect(main(['--once', '--check-config'])).rejects.toThrow('cannot be used together');
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+});
