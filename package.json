@@ -1,6 +1,44 @@
 {
+  "name": "health-checks",
+  "version": "2026.11.12",
+  "description": "Lightweight HTTP health checks with queued email or console alerts.",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node health-check.js",
+    "config:check": "node health-check.js --check-config",
+    "format": "prettier --write . config.json.sample",
+    "format:check": "prettier --check . config.json.sample",
+    "lint": "eslint .",
+    "build": "node --check health-check.js && node --check scripts/build.cjs && node --check scripts/update-language-badge.cjs && node scripts/build.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "check": "npm run format:check && npm run lint && npm run build && npm run coverage",
+    "ci": "npm run check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/doctorlai/health-checks.git"
+  },
   "dependencies": {
-    "axios": "^1.3.4",
-    "nodemailer": "^6.9.1"
+    "axios": "^1.21.1",
+    "nodemailer": "^10.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
+    "fflate": "^0.8.3",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.8"
   }
 }
