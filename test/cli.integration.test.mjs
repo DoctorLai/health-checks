@@ -12,6 +12,7 @@ let directory;
 let server;
 let origin;
 let requests;
+let webhookBodies;
 let nextFile = 0;
 
 function startCli(args) {
@@ -47,7 +48,7 @@ function startCli(args) {
   return { child, output, completion };
 }
 
-async function writeConfig(route, overrides = {}) {
+async function writeConfig(route, overrides = {}, settings = {}) {
   const filename = path.join(directory, `config-${nextFile++}.json`);
   await writeFile(
     filename,
@@ -64,6 +65,7 @@ async function writeConfig(route, overrides = {}) {
         },
       ],
       email: { enabled: false, interval: 0.05 },
+      ...settings,
     }),
   );
   return filename;
@@ -73,6 +75,17 @@ beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), 'health-checks-integration-'));
   server = createServer((request, response) => {
     requests.push(request.url);
+    if (request.url === '/webhook' && request.method === 'POST') {
+      let body = '';
+      request.on('data', (chunk) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        webhookBodies.push({ headers: request.headers, body: JSON.parse(body) });
+        response.end('ok');
+      });
+      return;
+    }
     if (request.url === '/slow') {
       return;
     }
@@ -89,6 +102,14 @@ beforeAll(async () => {
     if (request.url === '/unhealthy') {
       response.writeHead(503);
       response.end('sensitive upstream response');
+      return;
+    }
+    if (request.url === '/authenticated') {
+      const authorized =
+        request.headers.authorization === 'Bearer test-only-token' &&
+        request.headers['x-health-check'] === 'monitor';
+      response.writeHead(authorized ? 200 : 401);
+      response.end(authorized ? 'healthy' : 'unauthorized');
       return;
     }
     if (request.url === '/recovers') {
@@ -113,6 +134,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   requests = [];
+  webhookBodies = [];
 });
 
 afterEach(async () => {
@@ -141,6 +163,7 @@ describe('real HTTP and CLI behavior', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain(`${origin}${route} - OK!`);
+    expect(result.stdout).not.toContain('monitoring');
     expect(requests).toEqual([route]);
   });
 
@@ -154,6 +177,106 @@ describe('real HTTP and CLI behavior', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain(`${origin}/redirect - OK!`);
     expect(requests).toEqual(['/redirect']);
+  });
+
+  it.each([
+    ['test-only-token', 0],
+    ['wrong-token', 1],
+  ])('sends configured headers without logging the %s credential', async (token, code) => {
+    const config = await writeConfig('/authenticated', {
+      headers: { Authorization: `Bearer ${token}`, 'X-Health-Check': 'monitor' },
+    });
+    const result = await startCli(['--config', config, '--once', '--log-level', 'debug'])
+      .completion;
+    expect(result.code).toBe(code);
+    expect(requests).toEqual(['/authenticated']);
+    expect(`${result.stdout}${result.stderr}`).not.toContain(token);
+    expect(`${result.stdout}${result.stderr}`).toContain(`HTTP ${code === 0 ? 200 : 401}`);
+  });
+
+  it('rejects invalid headers without echoing their values or contacting endpoints', async () => {
+    const config = await writeConfig('/authenticated', {
+      headers: { Authorization: 'Bearer private-test-value\r\nInjected: true' },
+    });
+    const result = await startCli(['--config', config, '--check-config']).completion;
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('urls[0].headers');
+    expect(result.stderr).not.toContain('private-test-value');
+    expect(requests).toEqual([]);
+  });
+
+  it('uses the configured threshold and lets the CLI override it', async () => {
+    const config = await writeConfig('/healthy', {}, { logLevel: 'error' });
+    const quiet = await startCli(['--config', config, '--once']).completion;
+    expect(quiet.code).toBe(0);
+    expect(quiet.stdout).toBe('');
+    expect(quiet.stderr).toBe('');
+    const verbose = await startCli(['--config', config, '--once', '--log-level', 'debug'])
+      .completion;
+    expect(verbose.code).toBe(0);
+    expect(verbose.stdout).toMatch(/\[DEBUG\] Local endpoint responded with HTTP 200 in \d+ ms\./);
+    expect(verbose.stdout).toContain(`[INFO] ${origin}/healthy - OK!`);
+    expect(verbose.stderr).toBe('');
+  });
+
+  it('shows only failures at error level', async () => {
+    const config = await writeConfig('/unhealthy');
+    const result = await startCli(['--config', config, '--once', '--log-level', 'error'])
+      .completion;
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('[ERROR] Local endpoint returned unexpected status code: 503');
+  });
+
+  it('keeps an unhealthy exit code even when logs are silent', async () => {
+    const config = await writeConfig('/unhealthy');
+    const result = await startCli(['--config', config, '--once', '--log-level', 'silent'])
+      .completion;
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+  });
+
+  it('keeps startup validation errors visible in silent mode', async () => {
+    const config = await writeConfig('/healthy', { interval: 0 });
+    const result = await startCli(['--config', config, '--once', '--log-level', 'silent'])
+      .completion;
+    expect(result.code).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('[ERROR] health-checks: urls[0].interval');
+    expect(requests).toEqual([]);
+  });
+
+  it('rejects an invalid CLI level before reading configuration', async () => {
+    const result = await startCli([
+      '--config',
+      path.join(directory, 'missing.json'),
+      '--log-level',
+      'verbose',
+    ]).completion;
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('--log-level must be one of:');
+    expect(result.stderr).not.toContain('Could not read configuration');
+    expect(requests).toEqual([]);
+  });
+
+  it('posts failure alerts to a configured webhook in once mode', async () => {
+    const config = await writeConfig(
+      '/unhealthy',
+      {},
+      { webhook: { url: `${origin}/webhook`, headers: { 'X-Webhook-Token': 'hook-secret' } } },
+    );
+    const result = await startCli(['--config', config, '--once']).completion;
+    expect(result.code).toBe(1);
+    expect(requests).toEqual(['/unhealthy', '/webhook']);
+    expect(webhookBodies).toHaveLength(1);
+    expect(webhookBodies[0].headers['x-webhook-token']).toBe('hook-secret');
+    expect(webhookBodies[0].body).toMatchObject({
+      event: 'failure',
+      subject: 'Health check failed for Local endpoint',
+    });
+    expect(result.stdout).toContain('Webhook notification sent for Health check failed');
+    expect(`${result.stdout}${result.stderr}`).not.toContain('hook-secret');
   });
 
   it('exits unsuccessfully and prints an alert for an unexpected status', async () => {
@@ -177,7 +300,7 @@ describe('real HTTP and CLI behavior', () => {
     const config = await writeConfig('/healthy');
     const result = await startCli(['--config', config, '--check-config']).completion;
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Configuration is valid.');
+    expect(result.stdout).toBe('Configuration is valid.\n');
     expect(requests).toEqual([]);
   });
 
@@ -197,6 +320,42 @@ describe('real HTTP and CLI behavior', () => {
     expect(requests).toEqual([]);
   });
 
+  it('prints startup status before the first polling interval', async () => {
+    const config = await writeConfig('/healthy', { interval: 60 });
+    const running = startCli(['--config', config]);
+    await vi.waitFor(() => expect(running.output.stdout).toContain('monitoring 1 target(s)'), {
+      timeout: 2000,
+    });
+    expect(running.output.stdout).toContain('First checks run after each configured interval.');
+    expect(requests).toEqual([]);
+    running.child.kill('SIGTERM');
+    const result = await running.completion;
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+  });
+
+  it('can begin continuous monitoring immediately despite a long polling interval', async () => {
+    const config = await writeConfig('/healthy', { interval: 60 });
+    const running = startCli(['--config', config, '--immediate']);
+    await vi.waitFor(() => expect(requests).toContain('/healthy'), { timeout: 2000 });
+    expect(running.output.stdout).toContain('Initial checks run immediately.');
+    running.child.kill('SIGTERM');
+    const result = await running.completion;
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+  });
+
+  it('suppresses startup and healthy-check messages at error level', async () => {
+    const config = await writeConfig('/healthy');
+    const running = startCli(['--config', config, '--log-level', 'error']);
+    await vi.waitFor(() => expect(requests).toContain('/healthy'), { timeout: 2000 });
+    running.child.kill('SIGTERM');
+    const result = await running.completion;
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('');
+  });
+
   it('stops cleanly on SIGTERM while an HTTP request is in flight', async () => {
     const config = await writeConfig('/slow', { timeout: 10_000 });
     const running = startCli(['--config', config]);
@@ -209,6 +368,21 @@ describe('real HTTP and CLI behavior', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).not.toContain('Notification of Failure Handled:');
   });
+
+  it.each(['SIGINT', 'SIGTERM'])(
+    'cancels a once-mode HTTP check cleanly on %s with an unsuccessful exit code',
+    async (signal) => {
+      const config = await writeConfig('/slow', { timeout: 10_000 });
+      const running = startCli(['--config', config, '--once']);
+      await vi.waitFor(() => expect(requests).toContain('/slow'), { timeout: 2000 });
+      running.child.kill(signal);
+      const result = await running.completion;
+      expect(result.code).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stderr).toBe('');
+      expect(result.stdout).not.toContain('Notification of Failure Handled:');
+    },
+  );
 
   it('reports an endpoint recovery during continuous monitoring', async () => {
     const config = await writeConfig('/recovers', { notifyRecovery: true, ignore_period: 60 });

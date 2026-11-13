@@ -2,6 +2,41 @@
 
 Changes are recorded by date. This application is not published to npm.
 
+## Unreleased
+
+### Added
+
+- Configurable `debug`, `info`, `warn`, `error`, and `silent` log levels through the
+  `logLevel` configuration field and `--log-level` CLI override.
+- Severity labels and debug response-status diagnostics, with warnings and errors routed
+  to stderr. Log filtering does not disable monitoring or email alerts.
+- Per-target HTTP request headers for authenticated endpoints and content negotiation,
+  validated without echoing credential values in validation errors.
+- Opt-in `--immediate` startup checks that preserve recurring intervals and notification pacing.
+- Webhook notifications (`webhook.url`, optional `headers` and `enabled`) with a JSON payload
+  compatible with Slack, Discord, Mattermost, and Google Chat. Webhooks can be combined with
+  email, and their URLs are never logged.
+- Optional per-target `maxResponseTime` that fails otherwise-passing checks that respond too
+  slowly, plus response times in `debug` diagnostics.
+- GitHub issue templates for bug reports and feature requests.
+- CI smoke tests for the extracted runtime ZIP and downloadable ZIP artifacts retained for
+  14 days, without uploading coverage reports.
+
+### Changed
+
+- Grouped README badges and added request-header, startup-mode, and build-download guidance.
+- Ignore alternate local configuration files in Git and Prettier to protect private settings.
+- `start-via-pm2.sh` works from any directory, names the process `health-check`, and no longer
+  prints an error when no previous process exists.
+
+### Fixed
+
+- Print startup status immediately in normal monitoring mode instead of remaining silent
+  until the first configured polling interval.
+- Cancel once-mode HTTP requests cleanly on `SIGINT` and `SIGTERM`, return an unsuccessful
+  exit code for interrupted checks, and remove shutdown listeners on completion.
+- Close the SMTP transport only once when signal handling and finalization both stop the monitor.
+
 ## 2026.11.12 - 2026-11-12
 
 ### Added

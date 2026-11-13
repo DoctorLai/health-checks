@@ -1,0 +1,39 @@
+name: Bug report
+description: Report incorrect behavior of the health-check monitor.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, tokens, webhook URLs, private endpoints, or response bodies.
+        Report security vulnerabilities privately as described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: Output of `npm start -- --version` and `node --version`.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and sanitized configuration
+      description: The command you ran and the smallest configuration that reproduces the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include sanitized logs, ideally with `--log-level debug`.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: '`npm run config:check` succeeds with this configuration.'
+        - label: I removed credentials and private data from this report.
+          required: true

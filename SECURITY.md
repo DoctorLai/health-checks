@@ -22,8 +22,10 @@ response bodies. There is no guaranteed response time or paid support agreement.
 - Keep credentials out of Git and rotate any credentials that have been exposed.
 - Prefer HTTPS and provider-specific app passwords. Do not disable TLS certificate validation.
 - Treat URLs, logs, and notification contents as potentially sensitive.
+- Protect authorization headers and webhook URLs like SMTP credentials. Custom headers may be
+  forwarded on redirects, so only use trusted endpoints and redirect destinations.
 - Review dependency updates and run `npm audit` periodically.
 
 The monitor makes requests to URLs from its configuration and sends alerts through the
-configured mail provider. Do not accept configuration from untrusted users or expose it as
+configured mail provider or webhook. Do not accept configuration from untrusted users or expose it as
 a public URL-fetching service. See [PRIVACY.md](PRIVACY.md) for data handling.
