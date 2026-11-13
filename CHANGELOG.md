@@ -6,6 +6,7 @@ Changes are recorded by date. This application is not published to npm.
 
 ### Added
 
+- MIT license, included in runtime ZIPs.
 - Configurable `debug`, `info`, `warn`, `error`, and `silent` log levels through the
   `logLevel` configuration field and `--log-level` CLI override.
 - Severity labels and debug response-status diagnostics, with warnings and errors routed

@@ -65,7 +65,7 @@ upstream dependency ranges include a version fixing
 The application is not published. Use a date-based package version (`YYYY.M.D`) for a new
 version and record its changes in [CHANGELOG.md](CHANGELOG.md). Do not publish the package.
 
-## License status
+## License
 
-This repository currently has no license. Submitting a contribution does not select or
-grant a project-wide open-source license. License selection remains the owner's decision.
+This project is licensed under the [MIT License](LICENSE). Contributions are made under
+the same license.

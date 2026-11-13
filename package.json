@@ -3,7 +3,7 @@
   "version": "2026.11.12",
   "description": "Lightweight HTTP health checks with queued email or console alerts.",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "commonjs",
   "engines": {
     "node": ">=22.13.0"

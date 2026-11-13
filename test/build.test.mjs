@@ -15,9 +15,11 @@ it('builds a versioned runtime ZIP with matching metadata and no local secrets o
   const lock = JSON.parse(strFromU8(files['package-lock.json']));
   expect(manifest).toEqual(sourceManifest);
   expect(lock.packages[''].version).toBe(manifest.version);
+  expect(lock.packages[''].license).toBe(manifest.license);
   expect(Buffer.from(files['health-check.js'])).toEqual(
     readFileSync(path.join(root, 'health-check.js')),
   );
+  expect(Buffer.from(files.LICENSE)).toEqual(readFileSync(path.join(root, 'LICENSE')));
   expect(JSON.parse(strFromU8(files['config.json.sample'])).email.enabled).toBe(false);
   expect(Object.keys(files)).toEqual(
     expect.arrayContaining(['README.md', 'SECURITY.md', 'SUPPORT.md', 'PRIVACY.md', '.nvmrc']),

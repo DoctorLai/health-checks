@@ -3,7 +3,7 @@
 [![CI](https://github.com/doctorlai/health-checks/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/doctorlai/health-checks/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/github/package-json/engines/doctorlai/health-checks?filename=package.json)](https://nodejs.org/)
 [![Version](https://img.shields.io/github/package-json/v/doctorlai/health-checks)](CHANGELOG.md)
-[![License: not granted](https://img.shields.io/badge/license-not%20granted-lightgrey)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Privacy: no telemetry](https://img.shields.io/badge/privacy-no%20telemetry-blue)](PRIVACY.md)
 
 [![Code style: Prettier](https://img.shields.io/badge/code_style-Prettier-f8bc45)](https://prettier.io/)
@@ -342,9 +342,8 @@ If you find the tool useful, you can [buy the maintainer a coffee](https://justy
 
 ## License
 
-No license has been granted in this repository. The package is marked `private` and
-`UNLICENSED` to prevent accidental publication; this is not an open-source license.
-The owner must choose a license before reuse rights can be stated.
+Licensed under the [MIT License](LICENSE). The package remains `private` to prevent
+accidental npm publication.
 
 ## Acknowledgement
 
