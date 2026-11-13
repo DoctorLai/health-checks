@@ -13,6 +13,7 @@ const files = [
   'start-via-pm2.sh',
   '.nvmrc',
   'README.md',
+  'LICENSE',
   'CHANGELOG.md',
   'CONTRIBUTING.md',
   'SECURITY.md',
