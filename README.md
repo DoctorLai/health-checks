@@ -156,8 +156,9 @@ Add a root-level `webhook` to post each failure or recovery notification as JSON
 }
 ```
 
-The payload works with Slack, Mattermost, and Google Chat incoming webhooks (`text`) and
-Discord webhooks (`content`), and carries structured fields for custom receivers:
+Google Chat receives only the `text` field because its webhook rejects unknown fields. Other
+webhook URLs receive `text`, `content`, and structured fields; Slack and Mattermost use `text`,
+Discord uses `content`, and custom receivers can use the additional fields:
 
 ```json
 {

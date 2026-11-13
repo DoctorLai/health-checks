@@ -321,25 +321,24 @@ function createMonitor(config, { logger } = {}) {
 
   async function sendWebhook(item) {
     const summary = `${item.subject}\n${item.text}`;
+    const payload =
+      new URL(webhook.url).hostname === 'chat.googleapis.com'
+        ? { text: summary }
+        : {
+            text: summary,
+            content: summary,
+            event: item.recovery ? 'recovery' : 'failure',
+            subject: item.subject,
+            message: item.text,
+            timestamp: new Date().toISOString(),
+          };
     try {
-      await axios.post(
-        webhook.url,
-        {
-          // `text` is read by Slack/Mattermost/Google Chat, `content` by Discord.
-          text: summary,
-          content: summary,
-          event: item.recovery ? 'recovery' : 'failure',
-          subject: item.subject,
-          message: item.text,
-          timestamp: new Date().toISOString(),
-        },
-        {
-          headers: webhook.headers,
-          maxRedirects: 0,
-          timeout: DEFAULT_TIMEOUT_MS,
-          signal: controller.signal,
-        },
-      );
+      await axios.post(webhook.url, payload, {
+        headers: webhook.headers,
+        maxRedirects: 0,
+        timeout: DEFAULT_TIMEOUT_MS,
+        signal: controller.signal,
+      });
       logger.log(`Webhook notification sent for ${item.subject}`);
       return true;
     } catch (error) {

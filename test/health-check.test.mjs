@@ -580,6 +580,34 @@ describe('monitor', () => {
       expect(JSON.stringify(logger.log.mock.calls)).not.toContain('secret-token');
     });
 
+    it('sends only the text field to Google Chat', async () => {
+      const googleChatUrl =
+        'https://chat.googleapis.com/v1/spaces/space/messages?key=test-key&token=test-token';
+      axios.post.mockImplementation(async (url, payload) => {
+        if (
+          new URL(url).hostname === 'chat.googleapis.com' &&
+          Object.keys(payload).some((field) => field !== 'text')
+        ) {
+          throw new Error('Google Chat rejects unknown message fields');
+        }
+        return { status: 200 };
+      });
+      const config = configuration();
+      config.webhook = { url: googleChatUrl };
+
+      expect(await monitorFor(config).runOnce()).toBe(false);
+      expect(axios.post).toHaveBeenCalledWith(
+        googleChatUrl,
+        {
+          text: 'Health check failed for Example\nExample could not be reached: connection refused',
+        },
+        expect.objectContaining({ timeout: 10_000 }),
+      );
+      expect(logger.log).toHaveBeenCalledWith(
+        'Webhook notification sent for Health check failed for Example',
+      );
+    });
+
     it('marks recovery events', async () => {
       const config = configuration();
       config.urls[0].notifyRecovery = true;
