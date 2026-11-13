@@ -1,12 +1,17 @@
 {
+  "logLevel": "info",
   "urls": [
     {
       "name": "Example Website",
       "url": "https://example.com",
+      "headers": {
+        "Accept": "text/html"
+      },
       "interval": 60,
       "timeout": 10000,
       "expectedStatusCode": 200,
       "expectedContent": "Example Domain",
+      "maxResponseTime": 5000,
       "ignore_period": 1800,
       "notifyRecovery": false
     },
@@ -30,5 +35,9 @@
     "destination": "email address that you wish to receive the notification",
     "interval": 3,
     "enabled": false
+  },
+  "webhook": {
+    "enabled": false,
+    "url": "https://hooks.slack.com/services/replace/with/your-webhook"
   }
 }

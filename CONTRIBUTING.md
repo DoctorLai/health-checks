@@ -28,10 +28,15 @@ without coverage.
 Add regression tests for changed behavior, including the relevant failure path. Prefer
 fake timers and mocked SMTP; HTTP integration tests must bind only to a loopback address.
 Do not use live services, personal credentials, or real email delivery in tests.
+Keep new monitoring behavior opt-in when it would change existing polling or notification
+defaults. Test CLI options through the real entry point as well as the relevant unit tests.
 
 The CI matrix covers Node.js 22, 24, and 26. `npm run ci` is an alias for the complete check;
 it does not install dependencies. CI enforces coverage but does not upload reports or post
 coverage comments.
+The Node.js 24 job additionally extracts the runtime ZIP, installs production dependencies,
+validates its sample configuration without network requests, and uploads only the ZIP for
+14 days.
 
 `npm run build` creates a runtime ZIP in `dist/`. Keep its allowlist in `scripts/build.cjs`
 up to date when adding runtime files. Never package real configuration, credentials, or
@@ -42,6 +47,8 @@ not contain the development scripts or tests.
 
 Do not commit `config.json`, passwords, tokens, private URLs, or logs containing sensitive
 responses. Use `config.json.sample` for examples and placeholder credentials in tests.
+Alternate `config.*.json` and `config.json.*` files are ignored, except the tracked sample.
+Custom HTTP headers can contain credentials and need the same protection as SMTP passwords.
 Report security issues using [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Dependencies and versioning
